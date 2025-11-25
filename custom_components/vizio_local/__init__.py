@@ -73,11 +73,17 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         # Get current input/app
         try:
             current_input = await vizio.get_current_input(log_api_exception=False)
-            if current_input:
+            current_app = await vizio.get_current_app(log_api_exception=False)
+
+            # Prefer app name if available, otherwise use input
+            if current_app:
+                data["current_source"] = current_app
+                _LOGGER.debug(f"Current source: {current_app} (app)")
+            elif current_input:
                 data["current_source"] = current_input
-                _LOGGER.debug(f"Current source: {current_input}")
+                _LOGGER.debug(f"Current source: {current_input} (input)")
         except Exception as e:
-            _LOGGER.warning(f"Failed to get current input: {e}")
+            _LOGGER.warning(f"Failed to get current input/app: {e}")
 
         # Get power state
         try:
