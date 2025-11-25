@@ -44,58 +44,58 @@ class VizioMuteSwitch(CoordinatorEntity, SwitchEntity):
             return mute_value == "On"
         return None
 
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Mute TV."""
+    async def _set_mute(self, value: str) -> bool:
+        """Set mute state (internal helper)."""
+        _LOGGER.info(f"Attempting to set mute to {value}")
+
         try:
-            current_hash = self.coordinator.data.get("audio_mute_hash")
+            # Get current item to retrieve HASHVAL
+            _LOGGER.debug("Fetching current mute setting to get HASHVAL")
+            item = await self._vizio.get_setting("audio", "mute", log_api_exception=False)
+
+            if not item:
+                _LOGGER.error("Could not retrieve current mute - item is None")
+                return False
+
+            # Extract hash - handle both Item objects and raw values
+            current_hash = None
+            if hasattr(item, 'id'):
+                current_hash = item.id
+                _LOGGER.debug(f"Got hash from item.id: {current_hash}")
+            else:
+                _LOGGER.error(f"Item returned for mute has no 'id' attribute: {type(item)}")
+                return False
 
             if current_hash is None:
-                item = await self._vizio.get_setting("audio", "mute", log_api_exception=False)
-                if item:
-                    current_hash = item.id
+                _LOGGER.error("HASHVAL is None for mute")
+                return False
 
-            if current_hash is not None:
-                result = await self._vizio.set_setting(
-                    "audio",
-                    "mute",
-                    current_hash,
-                    "On",
-                    log_api_exception=False,
-                )
-                if result:
-                    await self.coordinator.async_request_refresh()
-                else:
-                    _LOGGER.error("Failed to mute TV")
+            # Set the new value
+            _LOGGER.info(f"Setting audio.mute = {value} with hash {current_hash}")
+            result = await self._vizio.set_setting(
+                "audio",
+                "mute",
+                current_hash,
+                value,
+                log_api_exception=False,
+            )
+
+            if result:
+                _LOGGER.info(f"Successfully set mute to {value}")
+                await self.coordinator.async_request_refresh()
+                return True
             else:
-                _LOGGER.error("Could not get hash for mute")
+                _LOGGER.error(f"set_setting returned False for mute = {value}")
+                return False
 
         except Exception as e:
-            _LOGGER.error(f"Error muting TV: {e}")
+            _LOGGER.error(f"Exception setting mute: {e}", exc_info=True)
+            return False
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Mute TV."""
+        await self._set_mute("On")
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Unmute TV."""
-        try:
-            current_hash = self.coordinator.data.get("audio_mute_hash")
-
-            if current_hash is None:
-                item = await self._vizio.get_setting("audio", "mute", log_api_exception=False)
-                if item:
-                    current_hash = item.id
-
-            if current_hash is not None:
-                result = await self._vizio.set_setting(
-                    "audio",
-                    "mute",
-                    current_hash,
-                    "Off",
-                    log_api_exception=False,
-                )
-                if result:
-                    await self.coordinator.async_request_refresh()
-                else:
-                    _LOGGER.error("Failed to unmute TV")
-            else:
-                _LOGGER.error("Could not get hash for mute")
-
-        except Exception as e:
-            _LOGGER.error(f"Error unmuting TV: {e}")
+        await self._set_mute("Off")
