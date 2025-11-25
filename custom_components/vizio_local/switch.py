@@ -46,36 +46,12 @@ class VizioMuteSwitch(CoordinatorEntity, SwitchEntity):
 
     async def _set_mute(self, value: str) -> bool:
         """Set mute state (internal helper)."""
-        _LOGGER.info(f"Attempting to set mute to {value}")
+        _LOGGER.info(f"Setting audio.mute to {value}")
 
         try:
-            # Get current item to retrieve HASHVAL
-            _LOGGER.debug("Fetching current mute setting to get HASHVAL")
-            item = await self._vizio.get_setting("audio", "mute", log_api_exception=False)
-
-            if not item:
-                _LOGGER.error("Could not retrieve current mute - item is None")
-                return False
-
-            # Extract hash - handle both Item objects and raw values
-            current_hash = None
-            if hasattr(item, 'id'):
-                current_hash = item.id
-                _LOGGER.debug(f"Got hash from item.id: {current_hash}")
-            else:
-                _LOGGER.error(f"Item returned for mute has no 'id' attribute: {type(item)}")
-                return False
-
-            if current_hash is None:
-                _LOGGER.error("HASHVAL is None for mute")
-                return False
-
-            # Set the new value
-            _LOGGER.info(f"Setting audio.mute = {value} with hash {current_hash}")
             result = await self._vizio.set_setting(
                 "audio",
                 "mute",
-                current_hash,
                 value,
                 log_api_exception=False,
             )
