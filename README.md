@@ -10,7 +10,7 @@ Local comprehensive Vizio SmartCast TV control component for Home Assistant. Bui
 
 ### Entities Created
 
-**Number Entities (8):**
+**Number Entities (7):**
 
 | Entity | Range | Description |
 |--------|-------|-------------|
@@ -20,8 +20,9 @@ Local comprehensive Vizio SmartCast TV control component for Home Assistant. Bui
 | `number.vizio_color` | 0-100 | Color saturation |
 | `number.vizio_tint` | 0-100 | Color tint/hue |
 | `number.vizio_sharpness` | 0-100 | Picture sharpness |
-| `number.vizio_balance` | -50 to 50 | Audio balance L/R |
 | `number.vizio_volume` | 0-100 | Volume level |
+
+> **Note:** Audio balance was removed as many Vizio TV models don't support it via the API.
 
 **Select Entities (1):**
 
@@ -42,6 +43,7 @@ These features exist in the Vizio API but aren't exposed as entities yet. Could 
 - **Picture:**
   - `auto_brightness_control` (On/Off)
 - **Audio:**
+  - `balance` (L/R balance - not supported on many models)
   - `tv_speakers` (Auto/On/Off)
   - `surround_sound` (On/Off)
   - `volume_leveling` (On/Off)

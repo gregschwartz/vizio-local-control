@@ -24,7 +24,6 @@ PICTURE_SETTINGS = {
 
 AUDIO_SETTINGS = {
     "volume": {"min": 0, "max": 100, "step": 1},
-    "balance": {"min": -50, "max": 50, "step": 1},
 }
 
 async def async_setup_platform(

@@ -40,35 +40,54 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
         # Get picture settings
         for setting in ["backlight", "brightness", "contrast", "color", "tint", "sharpness"]:
-            item = await vizio.get_setting("picture", setting, log_api_exception=False)
-            if item:
-                # Handle both Item objects and raw values
-                if hasattr(item, 'value'):
-                    data[f"picture_{setting}"] = item.value
-                    data[f"picture_{setting}_hash"] = item.id
-                else:
-                    data[f"picture_{setting}"] = item
+            try:
+                item = await vizio.get_setting("picture", setting, log_api_exception=False)
+                if item:
+                    # Handle both Item objects and raw values
+                    if hasattr(item, 'value'):
+                        data[f"picture_{setting}"] = item.value
+                        data[f"picture_{setting}_hash"] = item.id
+                    else:
+                        data[f"picture_{setting}"] = item
+                    _LOGGER.debug(f"Got picture {setting}: {data.get(f'picture_{setting}')}")
+            except Exception as e:
+                _LOGGER.warning(f"Failed to get picture {setting}: {e}")
 
         # Get audio settings
-        for setting in ["volume", "balance", "mute"]:
-            item = await vizio.get_setting("audio", setting, log_api_exception=False)
-            if item:
-                # Handle both Item objects and raw values
-                if hasattr(item, 'value'):
-                    data[f"audio_{setting}"] = item.value
-                    data[f"audio_{setting}_hash"] = item.id
+        for setting in ["volume", "mute"]:
+            try:
+                item = await vizio.get_setting("audio", setting, log_api_exception=False)
+                if item:
+                    # Handle both Item objects and raw values
+                    if hasattr(item, 'value'):
+                        data[f"audio_{setting}"] = item.value
+                        data[f"audio_{setting}_hash"] = item.id
+                    else:
+                        data[f"audio_{setting}"] = item
+                    _LOGGER.debug(f"Got audio {setting}: {data.get(f'audio_{setting}')}")
                 else:
-                    data[f"audio_{setting}"] = item
+                    _LOGGER.warning(f"No data returned for audio {setting}")
+            except Exception as e:
+                _LOGGER.warning(f"Failed to get audio {setting}: {e}")
 
         # Get current input/app
-        current_input = await vizio.get_current_input(log_api_exception=False)
-        if current_input:
-            data["current_source"] = current_input
+        try:
+            current_input = await vizio.get_current_input(log_api_exception=False)
+            if current_input:
+                data["current_source"] = current_input
+                _LOGGER.debug(f"Current source: {current_input}")
+        except Exception as e:
+            _LOGGER.warning(f"Failed to get current input: {e}")
 
         # Get power state
-        power_state = await vizio.get_power_state(log_api_exception=False)
-        data["power_state"] = power_state
+        try:
+            power_state = await vizio.get_power_state(log_api_exception=False)
+            data["power_state"] = power_state
+            _LOGGER.debug(f"Power state: {power_state}")
+        except Exception as e:
+            _LOGGER.warning(f"Failed to get power state: {e}")
 
+        _LOGGER.info(f"Coordinator update complete. Data keys: {list(data.keys())}")
         return data
 
     coordinator = DataUpdateCoordinator(
