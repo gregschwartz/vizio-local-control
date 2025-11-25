@@ -73,12 +73,16 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         # Get current input/app
         try:
             current_input = await vizio.get_current_input(log_api_exception=False)
-            current_app = await vizio.get_current_app(log_api_exception=False)
 
-            # Prefer app name if available, otherwise use input
-            if current_app:
-                data["current_source"] = current_app
-                _LOGGER.debug(f"Current source: {current_app} (app)")
+            # If on SmartCast input, get the actual app name
+            if current_input == "SMARTCAST":
+                current_app = await vizio.get_current_app(log_api_exception=False)
+                if current_app and current_app != "_UNKNOWN_APP":
+                    data["current_source"] = current_app
+                    _LOGGER.debug(f"Current source: {current_app} (app)")
+                else:
+                    data["current_source"] = current_input
+                    _LOGGER.debug(f"Current source: {current_input}")
             elif current_input:
                 data["current_source"] = current_input
                 _LOGGER.debug(f"Current source: {current_input} (input)")
