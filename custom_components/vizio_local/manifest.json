@@ -1,0 +1,10 @@
+{
+  "domain": "vizio_local",
+  "name": "Vizio Local Control",
+  "documentation": "https://github.com/gregschwartz/vizio-local-control",
+  "issue_tracker": "https://github.com/gregschwartz/vizio-local-control/issues",
+  "requirements": ["pyvizio==0.1.61"],
+  "codeowners": ["@gregschwartz"],
+  "version": "1.0.0",
+  "iot_class": "local_polling"
+}
