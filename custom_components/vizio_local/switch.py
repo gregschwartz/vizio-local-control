@@ -20,11 +20,14 @@ async def async_setup_platform(
     async_add_entities: AddEntitiesCallback,
     discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
-    """Set up switch entity."""
+    """Set up switch entities."""
     coordinator = hass.data[DOMAIN]["coordinator"]
     vizio = hass.data[DOMAIN]["vizio"]
 
-    async_add_entities([VizioMuteSwitch(coordinator, vizio)])
+    async_add_entities([
+        VizioMuteSwitch(coordinator, vizio),
+        VizioPowerSwitch(coordinator, vizio),
+    ])
 
 class VizioMuteSwitch(CoordinatorEntity, SwitchEntity):
     """Vizio mute switch."""
@@ -75,3 +78,73 @@ class VizioMuteSwitch(CoordinatorEntity, SwitchEntity):
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Unmute TV."""
         await self._set_mute("Off")
+
+
+class VizioPowerSwitch(CoordinatorEntity, SwitchEntity):
+    """Vizio power switch.
+
+    Note: Power on only works when TV is in "Quick Start" mode.
+    In "Eco Mode", the TV cannot be woken via network - this is a Vizio limitation.
+    """
+
+    def __init__(self, coordinator, vizio) -> None:
+        """Initialize switch entity."""
+        super().__init__(coordinator)
+        self._vizio = vizio
+        self._attr_name = "Vizio Power"
+        self._attr_unique_id = "vizio_power"
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True if TV is on."""
+        power_state = self.coordinator.data.get("power_state")
+        if power_state is not None:
+            return power_state == True or power_state == 1
+        return None
+
+    @property
+    def _is_eco_mode(self) -> bool:
+        """Return True if TV is in Eco Mode."""
+        power_mode = self.coordinator.data.get("power_mode")
+        if power_mode:
+            return "eco" in str(power_mode).lower()
+        return False
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra state attributes."""
+        power_mode = self.coordinator.data.get("power_mode", "Unknown")
+        attrs = {"power_mode": power_mode}
+        if self._is_eco_mode:
+            attrs["warning"] = "Power on disabled: TV in Eco Mode (change to Quick Start in TV settings)"
+        return attrs
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn on TV (only works in Quick Start mode)."""
+        if self._is_eco_mode:
+            _LOGGER.warning("Cannot turn on TV: Eco Mode enabled. Change to Quick Start in TV settings.")
+            return
+
+        _LOGGER.info("Turning on TV")
+        try:
+            result = await self._vizio.pow_on(log_api_exception=False)
+            if result:
+                _LOGGER.info("Successfully turned on TV")
+                await self.coordinator.async_request_refresh()
+            else:
+                _LOGGER.error("pow_on returned False")
+        except Exception as e:
+            _LOGGER.error(f"Exception turning on TV: {e}", exc_info=True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn off TV."""
+        _LOGGER.info("Turning off TV")
+        try:
+            result = await self._vizio.pow_off(log_api_exception=False)
+            if result:
+                _LOGGER.info("Successfully turned off TV")
+                await self.coordinator.async_request_refresh()
+            else:
+                _LOGGER.error("pow_off returned False")
+        except Exception as e:
+            _LOGGER.error(f"Exception turning off TV: {e}", exc_info=True)

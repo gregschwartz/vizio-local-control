@@ -32,7 +32,9 @@ Local comprehensive Vizio SmartCast TV control component for Home Assistant. Bui
   - **Physical inputs:** CAST, HDMI-1, HDMI-2, HDMI-3, HDMI-4, HDMI-5, COMP
   - **Streaming apps:** Netflix, Hulu, Disney+, YouTube, Prime Video, Plex, AccuWeather, ...  (all apps installed on your TV)
 
-**Switch Entities (1):**
+**Switch Entities (2):**
+- `switch.vizio_power` TV power on/off
+  - ⚠️ **Power on only works in "Quick Start" mode.** If your TV is in "Eco Mode", it cannot be woken via network - this is a Vizio hardware limitation. Check the entity's `power_mode` attribute to see current mode.
 - `switch.vizio_mute` Audio mute on/off
 
 

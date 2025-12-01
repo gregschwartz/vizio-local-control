@@ -97,6 +97,18 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         except Exception as e:
             _LOGGER.warning(f"Failed to get power state: {e}")
 
+        # Get power mode (Eco Mode vs Quick Start) - needed for power switch
+        try:
+            item = await vizio.get_setting("system", "power_mode", log_api_exception=False)
+            if item:
+                if hasattr(item, 'value'):
+                    data["power_mode"] = item.value
+                else:
+                    data["power_mode"] = item
+                _LOGGER.debug(f"Power mode: {data.get('power_mode')}")
+        except Exception as e:
+            _LOGGER.warning(f"Failed to get power mode: {e}")
+
         _LOGGER.info(f"Coordinator update complete. Data keys: {list(data.keys())}")
         return data
 

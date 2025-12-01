@@ -5,6 +5,6 @@
   "issue_tracker": "https://github.com/gregschwartz/vizio-local-control/issues",
   "requirements": ["pyvizio==0.1.61"],
   "codeowners": ["@gregschwartz"],
-  "version": "1.0.0",
+  "version": "1.1.0",
   "iot_class": "local_polling"
 }

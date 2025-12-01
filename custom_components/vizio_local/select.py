@@ -42,11 +42,22 @@ class VizioSourceSelect(CoordinatorEntity, SelectEntity):
     async def async_added_to_hass(self) -> None:
         """Load options when added to hass."""
         await super().async_added_to_hass()
+        await self._try_load_options()
+
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        # Retry loading if inputs missing (apps loaded but inputs didn't)
+        has_hdmi = any("HDMI" in inp for inp in self._inputs)
+        if not has_hdmi and self.coordinator.data.get("power_state"):
+            self.hass.async_create_task(self._try_load_options())
+        super()._handle_coordinator_update()
+
+    async def _try_load_options(self) -> None:
+        """Try to load options, handling errors."""
         try:
             await self._async_update_options()
         except Exception as e:
             _LOGGER.error(f"Failed to load source options: {e}", exc_info=True)
-            # Set fallback options
             self._all_options = ["Error loading sources"]
 
     async def _async_update_options(self) -> None:
@@ -55,6 +66,7 @@ class VizioSourceSelect(CoordinatorEntity, SelectEntity):
             # Get inputs
             _LOGGER.debug("Fetching inputs list...")
             inputs = await self._vizio.get_inputs_list(log_api_exception=False)
+            _LOGGER.debug(f"Raw inputs response: {inputs} (type: {type(inputs).__name__})")
             if inputs:
                 self._inputs = [inp.name for inp in inputs]
                 _LOGGER.info(f"Loaded {len(self._inputs)} inputs: {self._inputs}")
