@@ -34,9 +34,27 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     # Create Vizio client
     vizio = VizioAsync("0.0.0.0", f"{host}:{port}", "Vizio Greg", token, "tv")
 
+    # Last good values, merged into every update so entities hold state
+    # instead of going unknown while the TV is in standby. In Eco Mode the
+    # SmartCast API stays reachable but returns empty payloads for everything.
+    last_good: dict = {}
+    was_asleep: bool | None = None
+
     async def async_update_data():
         """Fetch data from Vizio."""
+        nonlocal was_asleep
         data = {}
+
+        try:
+            power_state = await vizio.get_power_state(log_api_exception=False)
+        except Exception as e:
+            _LOGGER.debug(f"Failed to get power state: {e}")
+            power_state = None
+
+        if was_asleep and power_state is not True:
+            # TV still in standby: don't hammer the dead API with the full
+            # settings sweep; one power probe per cycle detects wake-up.
+            return {**last_good, "power_state": False}
 
         # get_setting returns int/str directly (not Item objects)
         for setting in ["backlight", "brightness", "contrast", "color", "tint", "sharpness"]:
@@ -46,7 +64,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                     data[f"picture_{setting}"] = val
                     _LOGGER.debug(f"Got picture {setting}: {val}")
             except Exception as e:
-                _LOGGER.warning(f"Failed to get picture {setting}: {e}")
+                _LOGGER.debug(f"Failed to get picture {setting}: {e}")
 
         for setting in ["volume", "mute"]:
             try:
@@ -55,38 +73,38 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                     data[f"audio_{setting}"] = val
                     _LOGGER.debug(f"Got audio {setting}: {val}")
                 else:
-                    _LOGGER.warning(f"No data returned for audio {setting}")
+                    _LOGGER.debug(f"No data returned for audio {setting}")
             except Exception as e:
-                _LOGGER.warning(f"Failed to get audio {setting}: {e}")
+                _LOGGER.debug(f"Failed to get audio {setting}: {e}")
 
-        # Get current input/app
-        try:
-            current_input = await vizio.get_current_input(log_api_exception=False)
-            _LOGGER.debug(f"Raw get_current_input returned: {current_input!r}")
+        got_settings = any(k.startswith(("picture_", "audio_")) for k in data)
+        # Standby: power query empty/false AND no settings responded.
+        # Report off, never unknown, so downstream guards keep working.
+        asleep = power_state is not True and not got_settings
+        data["power_state"] = power_state is True or power_state == 1
 
-            # If on SmartCast input (or input is None while TV is on), try to get app
-            if not current_input or (current_input and current_input.upper() == "SMARTCAST"):
-                current_app = await vizio.get_current_app(log_api_exception=False)
-                _LOGGER.debug(f"Raw get_current_app returned: {current_app!r}")
-                if current_app and current_app != "_UNKNOWN_APP":
-                    data["current_source"] = current_app
-                elif current_input:
-                    data["current_source"] = current_input
+        if data["power_state"]:
+            # Get current input/app (only meaningful while the TV is on;
+            # while asleep we hold the last known source instead)
+            try:
+                current_input = await vizio.get_current_input(log_api_exception=False)
+                _LOGGER.debug(f"Raw get_current_input returned: {current_input!r}")
+
+                # If on SmartCast input (or input is None while TV is on), try to get app
+                if not current_input or (current_input and current_input.upper() == "SMARTCAST"):
+                    current_app = await vizio.get_current_app(log_api_exception=False)
+                    _LOGGER.debug(f"Raw get_current_app returned: {current_app!r}")
+                    if current_app and current_app != "_UNKNOWN_APP":
+                        data["current_source"] = current_app
+                    elif current_input:
+                        data["current_source"] = current_input
+                    else:
+                        data["current_source"] = "SmartCast"
                 else:
-                    data["current_source"] = "SmartCast"
-            else:
-                data["current_source"] = current_input
-                _LOGGER.debug(f"Current source: {current_input} (input)")
-        except Exception as e:
-            _LOGGER.warning(f"Failed to get current input/app: {e}")
-
-        # Get power state
-        try:
-            power_state = await vizio.get_power_state(log_api_exception=False)
-            data["power_state"] = power_state
-            _LOGGER.debug(f"Power state: {power_state}")
-        except Exception as e:
-            _LOGGER.warning(f"Failed to get power state: {e}")
+                    data["current_source"] = current_input
+                    _LOGGER.debug(f"Current source: {current_input} (input)")
+            except Exception as e:
+                _LOGGER.debug(f"Failed to get current input/app: {e}")
 
         # Get power mode (Eco Mode vs Quick Start) - needed for power switch
         try:
@@ -95,10 +113,22 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 data["power_mode"] = val
                 _LOGGER.debug(f"Power mode: {val}")
         except Exception as e:
-            _LOGGER.warning(f"Failed to get power mode: {e}")
+            _LOGGER.debug(f"Failed to get power mode: {e}")
 
-        _LOGGER.info(f"Coordinator update complete. Data keys: {list(data.keys())}")
-        return data
+        if asleep != was_asleep:
+            _LOGGER.info(
+                "TV is %s (power_state=%r, settings responded: %s)",
+                "asleep/standby" if asleep else "awake",
+                power_state,
+                got_settings,
+            )
+            was_asleep = asleep
+
+        merged = {**last_good, **data}
+        last_good.clear()
+        last_good.update(merged)
+        _LOGGER.debug(f"Coordinator update complete. Data keys: {list(merged.keys())}")
+        return merged
 
     coordinator = DataUpdateCoordinator(
         hass,
