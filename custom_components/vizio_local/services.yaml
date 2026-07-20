@@ -1,0 +1,16 @@
+boost_polling:
+  name: Boost polling
+  description: >-
+    Poll the TV every 1 second for the next N seconds, then return to the
+    normal adaptive interval. Call this right after firing an IR power
+    command so the power switch reflects the TV turning on almost instantly.
+  fields:
+    duration:
+      name: Duration
+      description: How long to poll at 1s intervals, in seconds.
+      default: 30
+      selector:
+        number:
+          min: 5
+          max: 300
+          unit_of_measurement: seconds

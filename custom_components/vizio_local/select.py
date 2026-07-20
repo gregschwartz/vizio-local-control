@@ -7,13 +7,17 @@ import time
 from homeassistant.components.select import SelectEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
+
+# Physical inputs, hardcoded so they're always valid options even when the
+# TV is in standby (its inputs endpoint goes dark in Eco Mode). The list
+# fetched from the TV is merged on top in case of renames.
+KNOWN_INPUTS = ["CAST", "HDMI-1", "HDMI-2", "HDMI-3", "HDMI-4", "HDMI-5", "COMP"]
 
 # Retry backoff for loading the inputs list (seconds)
 RETRY_INITIAL = 10
@@ -31,14 +35,13 @@ async def async_setup_platform(
 
     async_add_entities([VizioSourceSelect(coordinator, vizio)])
 
-class VizioSourceSelect(CoordinatorEntity, RestoreEntity, SelectEntity):
+class VizioSourceSelect(CoordinatorEntity, SelectEntity):
     """Vizio source selector (inputs + apps).
 
-    The physical inputs list can only be fetched while the TV answers its
-    inputs endpoint (it goes dark in Eco Mode standby), so the last known
-    inputs are persisted via RestoreEntity and the combined options list
-    never shrinks - otherwise automations referencing e.g. HDMI-2 break
-    whenever HA restarts while the TV is asleep.
+    Physical inputs are seeded from KNOWN_INPUTS so options like HDMI-2
+    stay valid even when HA starts while the TV is in standby (the inputs
+    endpoint goes dark in Eco Mode). The combined options list never
+    shrinks - otherwise automations referencing an input break.
     """
 
     def __init__(self, coordinator, vizio) -> None:
@@ -47,33 +50,25 @@ class VizioSourceSelect(CoordinatorEntity, RestoreEntity, SelectEntity):
         self._vizio = vizio
         self._attr_name = "Vizio Source"
         self._attr_unique_id = "vizio_source"
-        self._inputs = []
+        self._inputs = list(KNOWN_INPUTS)
         self._apps = []
-        # Start with loading placeholder so entity isn't unavailable
-        self._all_options = ["Loading..."]
+        self._all_options = list(KNOWN_INPUTS)
         self._retry_delay = RETRY_INITIAL
         self._next_retry = 0.0
         self._loading = False
+        self._apps_loaded = False
 
     async def async_added_to_hass(self) -> None:
-        """Restore last known inputs, then load options."""
+        """Load options when added to hass."""
         await super().async_added_to_hass()
-        last_state = await self.async_get_last_state()
-        if last_state:
-            restored = last_state.attributes.get("inputs") or []
-            if restored:
-                self._inputs = list(restored)
-                self._rebuild_options()
-                _LOGGER.info(f"Restored {len(restored)} inputs from last state: {restored}")
         await self._try_load_options()
 
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
-        # Retry loading if inputs missing (apps loaded but inputs didn't),
-        # with backoff so a sleeping TV isn't hammered every 10s
-        has_hdmi = any("HDMI" in inp for inp in self._inputs)
+        # Retry until the app list has loaded, with backoff so a sleeping
+        # TV isn't hammered every poll cycle
         now = time.monotonic()
-        if not has_hdmi and not self._loading and now >= self._next_retry:
+        if not self._apps_loaded and not self._loading and now >= self._next_retry:
             self._next_retry = now + self._retry_delay
             self._retry_delay = min(self._retry_delay * 2, RETRY_MAX)
             self.hass.async_create_task(self._try_load_options())
@@ -93,10 +88,9 @@ class VizioSourceSelect(CoordinatorEntity, RestoreEntity, SelectEntity):
         """Combine inputs + apps into the options list, never shrinking."""
         combined = self._inputs + self._apps
         for existing in self._all_options:
-            if existing not in combined and existing not in ("Loading...", "Error loading sources", "TV unreachable"):
+            if existing not in combined:
                 combined.append(existing)
-        if combined:
-            self._all_options = combined
+        self._all_options = combined
 
     async def _async_update_options(self) -> None:
         """Update available options."""
@@ -121,17 +115,13 @@ class VizioSourceSelect(CoordinatorEntity, RestoreEntity, SelectEntity):
         if apps:
             # Apps are returned as strings, not objects
             self._apps = sorted(apps)
+            self._apps_loaded = True
             _LOGGER.debug(f"Loaded {len(self._apps)} apps")
         else:
             _LOGGER.debug("No apps returned from TV")
 
         self._rebuild_options()
-        if self._inputs or self._apps:
-            _LOGGER.debug(f"Total options available: {len(self._all_options)}")
-        else:
-            _LOGGER.warning("No inputs or apps loaded - TV may be off or unreachable")
-            if self._all_options == ["Loading..."]:
-                self._all_options = ["TV unreachable"]
+        _LOGGER.debug(f"Total options available: {len(self._all_options)}")
         self.async_write_ha_state()
 
     @property
@@ -149,15 +139,9 @@ class VizioSourceSelect(CoordinatorEntity, RestoreEntity, SelectEntity):
         return current
 
     @property
-    def extra_state_attributes(self) -> dict:
-        """Persist the inputs list so it survives restarts (RestoreEntity)."""
-        return {"inputs": self._inputs}
-
-    @property
     def available(self) -> bool:
         """Return if entity is available."""
-        # Entity is available if we have real options (not error messages)
-        return len(self._all_options) > 0 and self._all_options[0] not in ["Loading...", "Error loading sources", "TV unreachable"]
+        return len(self._all_options) > 0
 
     async def async_select_option(self, option: str) -> None:
         """Select new source."""

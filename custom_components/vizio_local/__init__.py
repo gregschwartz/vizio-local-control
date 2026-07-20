@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import timedelta
 
 from pyvizio import VizioAsync
@@ -39,8 +40,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     # SmartCast API stays reachable but returns empty payloads for everything.
     last_good: dict = {}
     was_asleep: bool | None = None
+    boost_until = 0.0
 
-    async def async_update_data():
+    async def _poll():
         """Fetch data from Vizio."""
         nonlocal was_asleep
         data = {}
@@ -130,6 +132,20 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         _LOGGER.debug(f"Coordinator update complete. Data keys: {list(merged.keys())}")
         return merged
 
+    async def async_update_data():
+        """Poll, then pick the next poll interval adaptively."""
+        merged = await _poll()
+        if time.monotonic() < boost_until:
+            # Burst mode after an IR power command (vizio_local.boost_polling)
+            coordinator.update_interval = timedelta(seconds=1)
+        elif merged.get("power_state"):
+            coordinator.update_interval = timedelta(seconds=10)
+        else:
+            # While off it's a single cheap power probe, so poll fast to
+            # catch turn-on almost immediately
+            coordinator.update_interval = timedelta(seconds=2)
+        return merged
+
     coordinator = DataUpdateCoordinator(
         hass,
         _LOGGER,
@@ -139,6 +155,17 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     )
 
     await coordinator.async_refresh()
+
+    async def handle_boost_polling(call) -> None:
+        """Poll every 1s for the next N seconds (call right after an IR power command)."""
+        nonlocal boost_until
+        duration = call.data.get("duration", 30)
+        boost_until = time.monotonic() + duration
+        _LOGGER.info(f"Boost polling: 1s interval for {duration}s")
+        coordinator.update_interval = timedelta(seconds=1)
+        await coordinator.async_request_refresh()
+
+    hass.services.async_register(DOMAIN, "boost_polling", handle_boost_polling)
 
     hass.data[DOMAIN] = {
         "coordinator": coordinator,
