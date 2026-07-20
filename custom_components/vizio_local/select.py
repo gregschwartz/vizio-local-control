@@ -104,7 +104,9 @@ class VizioSourceSelect(CoordinatorEntity, SelectEntity):
     def current_option(self) -> str | None:
         """Return current source."""
         current = self.coordinator.data.get("current_source")
-        _LOGGER.debug(f"Current source from coordinator: {current}")
+        # Add to options if not present so HA doesn't reject the value
+        if current and current not in self._all_options:
+            self._all_options.append(current)
         return current
 
     @property
