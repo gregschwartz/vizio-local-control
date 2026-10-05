@@ -1,6 +1,7 @@
 """Vizio Local Control integration."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from datetime import timedelta
@@ -17,6 +18,7 @@ _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "vizio_local"
 PLATFORMS = [Platform.NUMBER, Platform.SELECT, Platform.SWITCH]
+PROBE_TIMEOUT = 2  # seconds; the TV answers in ms when awake
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up from configuration.yaml."""
@@ -42,10 +44,30 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     was_asleep: bool | None = None
     boost_until = 0.0
 
+    async def _port_open() -> bool:
+        """Cheap reachability probe: in Eco Mode the TV drops off the network
+        entirely when off, so a refused/timed-out TCP connect means standby."""
+        try:
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, port), timeout=PROBE_TIMEOUT
+            )
+        except (OSError, asyncio.TimeoutError):
+            return False
+        writer.close()
+        return True
+
     async def _poll():
         """Fetch data from Vizio."""
         nonlocal was_asleep
         data = {}
+
+        if not await _port_open():
+            # Skip the settings sweep: each pyvizio call would wait out its own
+            # timeout, which made HA report "on" for ~50s after the TV went dark.
+            if was_asleep is not True:
+                _LOGGER.info("TV unreachable on %s:%s - reporting standby", host, port)
+                was_asleep = True
+            return {**last_good, "power_state": False}
 
         try:
             power_state = await vizio.get_power_state(log_api_exception=False)
